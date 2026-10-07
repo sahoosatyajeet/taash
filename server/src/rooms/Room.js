@@ -29,6 +29,9 @@ class Room {
 
     // Turn timer tracker: NodeJS.Timeout
     this.turnTimer = null;
+    this.turnStartedAt = 0;
+    this.turnExpiresAt = 0;
+    this.turnDuration = 25;
 
     // Disconnect timeout tracker: id -> NodeJS.Timeout
     this.disconnectTimeouts = new Map();
@@ -250,6 +253,9 @@ class Room {
       isConnected: s ? s.isConnected : false,
       isBot: s ? Boolean(s.isBot) : false,
     }));
+    privateState.turnDuration = this.turnDuration || 25;
+    privateState.turnStartedAt = this.turnStartedAt || 0;
+    privateState.turnExpiresAt = this.turnExpiresAt || 0;
 
     return privateState;
   }
@@ -452,10 +458,12 @@ class Room {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
     }
+    this.turnStartedAt = 0;
+    this.turnExpiresAt = 0;
   }
 
   /**
-   * Reset 25s AFK turn timer for human players.
+   * Reset 25s AFK turn timer for players.
    */
   resetTurnTimer(io) {
     this.clearTurnTimer();
@@ -465,6 +473,22 @@ class Room {
     const currentSeat = round.getCurrentPlayerSeat();
     if (currentSeat === null) return;
     const player = this.seats[currentSeat];
+
+    this.turnDuration = 25;
+    this.turnStartedAt = Date.now();
+    this.turnExpiresAt = this.turnStartedAt + (this.turnDuration * 1000);
+
+    // Broadcast timer start event to all clients in the room
+    if (io) {
+      io.to(this.code).emit('turn_timer_start', {
+        seat: currentSeat,
+        duration: this.turnDuration,
+        startedAt: this.turnStartedAt,
+        expiresAt: this.turnExpiresAt,
+        isBot: player ? Boolean(player.isBot) : false,
+      });
+    }
+
     if (!player || player.isBot) return; // Bots are automated
 
     // 25 second safety timer
